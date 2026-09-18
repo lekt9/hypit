@@ -144,6 +144,33 @@ export function LoginGate() {
               {checking ? "Working" : mode === "signup" ? "Create account" : "Sign in"}
             </button>
           </form>
+          <div className="login-divider">
+            <span>or</span>
+          </div>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={checking}
+            onClick={async () => {
+              setChecking(true);
+              setError("");
+              try {
+                const response = await fetch("/api/auth/anonymous", { method: "POST" });
+                const data = (await response.json()) as Record<string, unknown>;
+                if (typeof data.freeRemaining === "number" && data.freeRemaining <= 0) {
+                  setError("Free videos used up. Sign up to keep creating.");
+                  return;
+                }
+                studio.startAnonymous();
+              } catch {
+                setError("Could not start a free session.");
+              } finally {
+                setChecking(false);
+              }
+            }}
+          >
+            Try 5 free — no signup
+          </button>
           <button
             type="button"
             className="text-link login-toggle"

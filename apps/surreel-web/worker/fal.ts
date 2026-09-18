@@ -3,6 +3,8 @@ import { clipSeconds } from "../src/timing.ts";
 export const IMAGE_MODEL = "openai/gpt-image-2.5/flare/text-to-image";
 export const VIDEO_MODEL = "bytedance/seedance-2.0/fast/image-to-video";
 export const VIDEO_TEXT_MODEL = "bytedance/seedance-2.0/fast/text-to-video";
+export const FREE_VIDEO_MODEL = "minimax/h3-max-turbo/image-to-video";
+export const FREE_VIDEO_TEXT_MODEL = "minimax/h3-max-turbo/text-to-video";
 export const CAPTION_EDIT_MODEL = "fal-ai/workflow-utilities/add-subtitles-to-video";
 export const MERGE_MODEL = "fal-ai/ffmpeg-api/merge-videos";
 
@@ -25,7 +27,8 @@ export function captionEditInput(videoUrl: string, cues: Array<{ start: number; 
   };
 }
 
-export function videoModelId(_videoSkill: string | undefined, hasImage: boolean): string {
+export function videoModelId(_videoSkill: string | undefined, hasImage: boolean, free = false): string {
+  if (free) return hasImage ? FREE_VIDEO_MODEL : FREE_VIDEO_TEXT_MODEL;
   return hasImage ? VIDEO_MODEL : VIDEO_TEXT_MODEL;
 }
 

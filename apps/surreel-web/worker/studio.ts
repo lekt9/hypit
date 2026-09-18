@@ -167,6 +167,8 @@ export class StudioDO extends DurableObject<StudioEnv> {
     }
   }
 
+  private static readonly FREE_LIMIT = 5;
+
   private async authenticate(request: Request): Promise<JwtPayload | Response> {
     const secret = this.env.STUDIO_SECRET;
     if (!secret) return { sub: "anonymous", email: "", iat: 0, exp: 0 };
@@ -178,6 +180,8 @@ export class StudioDO extends DurableObject<StudioEnv> {
       const payload = await verifyJwt(raw, secret);
       if (payload) return payload;
     }
+    const sessionId = this.anonSessionId(request);
+    if (sessionId) return { sub: `anon:${sessionId}`, email: "", iat: 0, exp: 0 };
     return new Response(JSON.stringify({ error: "Authentication required." }), {
       status: 401,
       headers: {
@@ -186,6 +190,32 @@ export class StudioDO extends DurableObject<StudioEnv> {
         "cache-control": "no-store",
       },
     });
+  }
+
+  private anonSessionId(request: Request): string | null {
+    const cookie = request.headers.get("cookie") ?? "";
+    const match = cookie.match(/(?:^|;\s*)surreel-anon=([a-f0-9-]{36})/);
+    return match ? match[1]! : null;
+  }
+
+  private async anonCount(sessionId: string): Promise<number> {
+    return (await this.ctx.storage.get<number>(`anon-count:${sessionId}`)) ?? 0;
+  }
+
+  private async anonIncrement(sessionId: string): Promise<number> {
+    const count = (await this.anonCount(sessionId)) + 1;
+    await this.ctx.storage.put(`anon-count:${sessionId}`, count);
+    return count;
+  }
+
+  private isAnon(userId: string): boolean {
+    return userId.startsWith("anon:");
+  }
+
+  private anonCookie(response: Response, sessionId: string): Response {
+    const headers = new Headers(response.headers);
+    headers.append("set-cookie", `surreel-anon=${sessionId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
+    return new Response(response.body, { status: response.status, headers });
   }
 
   private async getUser(email: string): Promise<User | undefined> {
@@ -200,6 +230,8 @@ export class StudioDO extends DurableObject<StudioEnv> {
     const url = new URL(request.url);
     const path = url.pathname;
     if (path === "/api/health" && request.method === "GET") {
+      const sessionId = this.anonSessionId(request);
+      const anonCount = sessionId ? await this.anonCount(sessionId) : 0;
       return json({
         status: "ok",
         agentAvailable: Boolean(this.env.FAL_KEY && this.env.OPENROUTER_API_KEY),
@@ -209,8 +241,18 @@ export class StudioDO extends DurableObject<StudioEnv> {
         browser: this.env.BROWSER_USE_API_KEY ? "Browser Use" : "http",
         sdkVersion: "0.25.0",
         authentication: this.env.STUDIO_SECRET ? "bearer" : "none",
+        freeLimit: StudioDO.FREE_LIMIT,
+        freeUsed: anonCount,
+        freeRemaining: Math.max(0, StudioDO.FREE_LIMIT - anonCount),
         trustLocalAgent: false,
       });
+    }
+
+    if (path === "/api/auth/anonymous" && request.method === "POST") {
+      const sessionId = this.anonSessionId(request) ?? crypto.randomUUID();
+      const count = await this.anonCount(sessionId);
+      const resp = json({ sessionId, freeUsed: count, freeRemaining: Math.max(0, StudioDO.FREE_LIMIT - count) });
+      return this.anonCookie(resp, sessionId);
     }
 
     if (path === "/api/auth/signup" && request.method === "POST") {
@@ -264,6 +306,15 @@ export class StudioDO extends DurableObject<StudioEnv> {
       return json({ projects: owned });
     }
     if (path === "/api/projects" && request.method === "POST") {
+      const free = this.isAnon(userId);
+      if (free) {
+        const sessionId = userId.slice(5);
+        const count = await this.anonCount(sessionId);
+        if (count >= StudioDO.FREE_LIMIT) {
+          throw new RequestError(403, `You've used all ${StudioDO.FREE_LIMIT} free videos. Sign up to keep creating.`);
+        }
+        await this.anonIncrement(sessionId);
+      }
       const input = projectInput((await request.json()) as Record<string, unknown>);
       const id = crypto.randomUUID();
       const created = now();
@@ -271,15 +322,21 @@ export class StudioDO extends DurableObject<StudioEnv> {
         ...input,
         id,
         userId,
+        free,
         status: "draft",
         createdAt: created,
         updatedAt: created,
-        events: [{ id: crypto.randomUUID(), type: "created", message: "Draft saved.", createdAt: created }],
+        events: [{ id: crypto.randomUUID(), type: "created", message: free ? "Draft saved. Free tier (MiniMax)." : "Draft saved.", createdAt: created }],
         artifacts: [],
       };
       projects[id] = project;
       await this.writeAll(projects, jobs, pages);
-      return json({ project }, 201);
+      const resp = json({ project }, 201);
+      if (free) {
+        const sessionId = userId.slice(5);
+        return this.anonCookie(resp, sessionId);
+      }
+      return resp;
     }
     const match = path.match(/^\/api\/projects\/([0-9a-f-]{36})(?:\/(runs|cancel|artifacts)(?:\/([^/]+))?)?$/i);
     if (!match) return json({ error: "Not found." }, 404);
@@ -306,10 +363,11 @@ export class StudioDO extends DurableObject<StudioEnv> {
         throw new RequestError(503, "Tardigrade is not configured on this deployment.");
       }
       const prompt = revision ? `${project.prompt}\n\nRevision: ${revision}` : project.prompt;
-      const next = event({ ...project, status: "queued", error: undefined }, "queued", "Queued on Tardigrade.");
+      const next = event({ ...project, status: "queued", error: undefined }, "queued", project.free ? "Queued on MiniMax H3." : "Queued on Tardigrade.");
       projects[id] = next;
       jobs[id] = {
         projectId: id,
+        free: project.free,
         phase: project.referenceUrl ? "page" : "plan",
         prompt,
         aspectRatio: project.aspectRatio,
@@ -511,7 +569,7 @@ export class StudioDO extends DurableObject<StudioEnv> {
           clipIndex: 0,
           imageSkill: plan.imageSkill,
           videoSkill: plan.videoSkill,
-          videoModel: videoModelId(plan.videoSkill, true),
+          videoModel: videoModelId(plan.videoSkill, true, job.free),
         },
       };
     }
@@ -664,7 +722,7 @@ export class StudioDO extends DurableObject<StudioEnv> {
     const index = job.clipIndex ?? 0;
     const clip = clips[index];
     if (!clip) throw new FalError("Motion clip list was empty.");
-    const renderModel = videoModelId(job.videoSkill, Boolean(job.imageUrl));
+    const renderModel = videoModelId(job.videoSkill, Boolean(job.imageUrl), job.free);
     if (!clip.requestId) {
       const submitted = await submit(
         key,

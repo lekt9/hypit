@@ -1342,6 +1342,24 @@ input::placeholder {
   text-align: center;
 }
 
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  color: var(--color-hint);
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-rule);
+}
+
 .login-toggle {
   justify-content: center;
   width: 100%;

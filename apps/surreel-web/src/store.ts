@@ -136,6 +136,17 @@ export class StudioStore {
     this.emit();
   }
 
+  startAnonymous(): void {
+    this.api = new SurreelApi(this.api.baseUrl, "");
+    this.connectionVersion += 1;
+    this.authenticated = true;
+    this.error = undefined;
+    this.projects = [];
+    this.selected = undefined;
+    this.emit();
+    void this.loadProjects();
+  }
+
   clearError(): void {
     if (!this.error) return;
     this.error = undefined;

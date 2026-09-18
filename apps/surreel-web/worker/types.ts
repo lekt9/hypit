@@ -30,6 +30,7 @@ export type Artifact = { id: string; name: string; url: string; mimeType: string
 export type Project = ProjectInput & {
   id: string;
   userId?: string;
+  free?: boolean;
   status: ProjectStatus;
   createdAt: string;
   updatedAt: string;
@@ -42,6 +43,7 @@ export type Project = ProjectInput & {
 
 export type Job = {
   projectId: string;
+  free?: boolean;
   phase: "page" | "plan" | "image" | "video" | "merge" | "edit" | "store";
   prompt: string;
   aspectRatio: AspectRatio;

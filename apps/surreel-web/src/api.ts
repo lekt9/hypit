@@ -19,6 +19,9 @@ export type HealthInfo = {
   browser?: string;
   sdkVersion?: string;
   authentication?: string;
+  freeLimit?: number;
+  freeUsed?: number;
+  freeRemaining?: number;
 };
 
 function normalizeBase(baseUrl: string): string {
