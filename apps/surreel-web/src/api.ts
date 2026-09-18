@@ -40,8 +40,10 @@ export class SurreelApi {
 
   artifactUrl(url: string): string {
     if (/^https?:\/\//i.test(url)) return url;
-    if (this.baseUrl.length === 0) return url;
-    return new URL(url, `${this.baseUrl}/`).toString();
+    const base = this.baseUrl.length === 0 ? url : new URL(url, `${this.baseUrl}/`).toString();
+    if (this.token.length === 0) return base;
+    const sep = base.includes("?") ? "&" : "?";
+    return `${base}${sep}token=${encodeURIComponent(this.token)}`;
   }
 
   private headers(hasBody: boolean): HeadersInit {

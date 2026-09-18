@@ -44,6 +44,7 @@ export type StudioEnv = {
   FAL_KEY?: string;
   OPENROUTER_API_KEY?: string;
   BROWSER_USE_API_KEY?: string;
+  STUDIO_SECRET?: string;
   MEDIA: R2Bucket;
   STUDIO: DurableObjectNamespace<StudioDO>;
 };
@@ -157,6 +158,25 @@ export class StudioDO extends DurableObject<StudioEnv> {
     }
   }
 
+  private authenticate(request: Request): Response | null {
+    const secret = this.env.STUDIO_SECRET;
+    if (!secret) return null;
+    const header = request.headers.get("authorization") ?? "";
+    const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+    if (token.length > 0 && token === secret) return null;
+    const url = new URL(request.url);
+    const queryToken = url.searchParams.get("token") ?? "";
+    if (queryToken.length > 0 && queryToken === secret) return null;
+    return new Response(JSON.stringify({ error: "Authentication required." }), {
+      status: 401,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "www-authenticate": "Bearer",
+        "cache-control": "no-store",
+      },
+    });
+  }
+
   private async route(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
@@ -169,10 +189,12 @@ export class StudioDO extends DurableObject<StudioEnv> {
         skills: listCcSkills().map((skill) => skill.name),
         browser: this.env.BROWSER_USE_API_KEY ? "Browser Use" : "http",
         sdkVersion: "0.25.0",
-        authentication: "none",
+        authentication: this.env.STUDIO_SECRET ? "bearer" : "none",
         trustLocalAgent: false,
       });
     }
+    const denied = this.authenticate(request);
+    if (denied) return denied;
     const { projects, jobs, pages } = await this.readAll();
     if (path === "/api/projects" && request.method === "GET") {
       return json({ projects: Object.values(projects).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) });
@@ -250,7 +272,8 @@ export class StudioDO extends DurableObject<StudioEnv> {
       if (!artifact) return json({ error: "Artifact not found." }, 404);
       const object = await this.env.MEDIA.get(`projects/${id}/${artifact.id}`);
       if (!object) return json({ error: "Artifact not found." }, 404);
-      const headers = new Headers({ "content-type": artifact.mimeType, "cache-control": "public, max-age=3600" });
+      const cachePolicy = this.env.STUDIO_SECRET ? "private, max-age=3600" : "public, max-age=3600";
+      const headers = new Headers({ "content-type": artifact.mimeType, "cache-control": cachePolicy });
       if (request.method === "HEAD") return new Response(null, { status: 200, headers });
       return new Response(object.body, { status: 200, headers });
     }

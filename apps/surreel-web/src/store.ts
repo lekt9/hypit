@@ -25,9 +25,17 @@ function messageOf(error: unknown): string {
   return "Something went wrong while contacting Surreel. Try again.";
 }
 
+function readStoredToken(): string {
+  try {
+    return localStorage.getItem("surreel.token") ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export class StudioStore {
   private listeners = new Set<() => void>();
-  private api = new SurreelApi();
+  private api = new SurreelApi("", readStoredToken());
   private projects: Project[] = [];
   private selected: Project | undefined;
   private loading = true;
