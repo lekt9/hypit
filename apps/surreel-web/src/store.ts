@@ -15,6 +15,8 @@ export type StudioState = {
   loading: boolean;
   busy: boolean;
   connected: boolean;
+  authenticated: boolean;
+  authRequired: boolean;
   error: string | undefined;
   health: HealthInfo;
 };
@@ -41,6 +43,8 @@ export class StudioStore {
   private loading = true;
   private busy = false;
   private connected = false;
+  private authenticated = true;
+  private authRequired = false;
   private error: string | undefined;
   private health: HealthInfo = {};
   private connectionVersion = 0;
@@ -70,6 +74,8 @@ export class StudioStore {
       loading: this.loading,
       busy: this.busy,
       connected: this.connected,
+      authenticated: this.authenticated,
+      authRequired: this.authRequired,
       error: this.error,
       health: this.health,
     };
@@ -85,7 +91,49 @@ export class StudioStore {
   }
 
   async initialize(): Promise<void> {
+    try {
+      const health = await this.api.health();
+      this.health = health;
+      this.authRequired = health.authentication === "bearer";
+    } catch {
+      this.authRequired = false;
+    }
+    if (this.authRequired && this.api.token.length === 0) {
+      this.authenticated = false;
+      this.loading = false;
+      this.emit();
+      return;
+    }
     await this.loadProjects();
+  }
+
+  setToken(token: string): void {
+    const clean = token.trim();
+    try {
+      if (clean.length > 0) localStorage.setItem("surreel.token", clean);
+      else localStorage.removeItem("surreel.token");
+    } catch { /* private mode */ }
+    this.api = new SurreelApi(this.api.baseUrl, clean);
+    this.connectionVersion += 1;
+    this.authenticated = true;
+    this.error = undefined;
+    this.projects = [];
+    this.selected = undefined;
+    this.emit();
+    void this.initialize();
+  }
+
+  logout(): void {
+    try { localStorage.removeItem("surreel.token"); } catch { /* private mode */ }
+    this.api = new SurreelApi(this.api.baseUrl, "");
+    this.connectionVersion += 1;
+    this.authenticated = false;
+    this.connected = false;
+    this.projects = [];
+    this.selected = undefined;
+    this.error = undefined;
+    this.clearPoll();
+    this.emit();
   }
 
   clearError(): void {
@@ -142,6 +190,12 @@ export class StudioStore {
       this.error = undefined;
     } catch (error) {
       if (!this.current(connection) || request !== this.listVersion) return;
+      if (error instanceof SurreelApiError && error.statusCode === 401) {
+        this.authenticated = false;
+        this.loading = false;
+        this.emit();
+        return;
+      }
       if (!silent) {
         this.connected = false;
         this.error = messageOf(error);

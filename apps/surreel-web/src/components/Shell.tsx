@@ -1,5 +1,6 @@
-import { ImagesIcon, PaperPlaneTiltIcon, QuestionIcon, QueueIcon, StackIcon } from "@phosphor-icons/react";
+import { ImagesIcon, PaperPlaneTiltIcon, QuestionIcon, QueueIcon, SignOutIcon, StackIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
+import { studio } from "../store.ts";
 import { hrefFor, type Route, type Tab } from "../useStudio.ts";
 
 const tabs: { id: Tab; label: string; Icon: typeof QueueIcon }[] = [
@@ -14,10 +15,11 @@ type Props = {
   inboxCount: number;
   connected: boolean;
   agentAvailable: boolean;
+  authRequired: boolean;
   children: ReactNode;
 };
 
-export function Shell({ route, inboxCount, connected, agentAvailable, children }: Props) {
+export function Shell({ route, inboxCount, connected, agentAvailable, authRequired, children }: Props) {
   const live = connected && agentAvailable;
   const liveLabel = live ? "Live" : connected ? "Agent off" : "Offline";
   const liveStatus = live ? "Studio live" : connected ? "Agent offline" : "Studio offline";
@@ -42,6 +44,11 @@ export function Shell({ route, inboxCount, connected, agentAvailable, children }
           <a className="icon-btn" href="#/help" aria-label="Getting started">
             <QuestionIcon size={20} weight="regular" aria-hidden />
           </a>
+          {authRequired ? (
+            <button type="button" className="icon-btn" aria-label="Sign out" onClick={() => studio.logout()}>
+              <SignOutIcon size={20} weight="regular" aria-hidden />
+            </button>
+          ) : null}
         </header>
         <main className="stage" id="main" tabIndex={-1}>
           {children}

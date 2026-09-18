@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { studio } from "../store.ts";
 
 function closeStudioDialog() {
   window.location.hash = "#/queue";
@@ -54,6 +55,74 @@ function DialogFrame({
     <div className="dialog-scrim" role="presentation" onClick={(event) => event.target === event.currentTarget && closeStudioDialog()}>
       <div ref={ref} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         {children}
+      </div>
+    </div>
+  );
+}
+
+export function LoginGate() {
+  const [token, setToken] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState("");
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const clean = token.trim();
+    if (clean.length === 0) {
+      setError("Enter your studio key.");
+      return;
+    }
+    setChecking(true);
+    setError("");
+    try {
+      const response = await fetch("/api/projects", {
+        headers: { Authorization: `Bearer ${clean}`, Accept: "application/json" },
+      });
+      if (response.status === 401) {
+        setError("That key is not valid.");
+        return;
+      }
+      if (!response.ok) {
+        setError(`Studio returned ${response.status}. Try again.`);
+        return;
+      }
+      studio.setToken(clean);
+    } catch {
+      setError("Could not reach the studio. Check your connection.");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <div className="canvas">
+      <div className="bloom" aria-hidden />
+      <div className="grain" aria-hidden />
+      <div className="column login-column">
+        <div className="login">
+          <img src="/brand/surreel.svg" alt="" width={36} height={36} className="login-mark" />
+          <h1 className="login-title">Surreel</h1>
+          <p className="note">Enter your studio key to start creating.</p>
+          {error ? <p className="banner">{error}</p> : null}
+          <form onSubmit={onSubmit} noValidate>
+            <label className="field" htmlFor="login-token">
+              <span>Studio key</span>
+              <input
+                id="login-token"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={token}
+                placeholder="surreel-…"
+                aria-invalid={error ? true : undefined}
+                onChange={(event) => setToken(event.target.value)}
+              />
+            </label>
+            <button type="submit" className="btn" disabled={checking} aria-busy={checking || undefined}>
+              {checking ? "Checking" : "Sign in"}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

@@ -18,6 +18,7 @@ export type HealthInfo = {
   skills?: string[];
   browser?: string;
   sdkVersion?: string;
+  authentication?: string;
 };
 
 function normalizeBase(baseUrl: string): string {

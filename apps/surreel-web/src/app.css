@@ -1301,6 +1301,47 @@ input::placeholder {
   margin-top: var(--space-lg);
 }
 
+.login-column {
+  justify-content: center;
+  align-items: center;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.login {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  width: 100%;
+  max-width: 320px;
+  padding: var(--space-xl) var(--space-lg);
+}
+
+.login-mark {
+  margin: 0 auto;
+}
+
+.login-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-display-s);
+  letter-spacing: var(--tracking-display);
+  text-align: center;
+}
+
+.login form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.login .note {
+  text-align: center;
+}
+
+.login .banner {
+  text-align: center;
+}
+
 @media (min-width: 600px) {
   .dialog-scrim {
     place-items: center;
