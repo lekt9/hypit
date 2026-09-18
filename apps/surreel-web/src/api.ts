@@ -112,6 +112,17 @@ export class SurreelApi {
     return this.request("GET", ["health"]) as Promise<HealthInfo>;
   }
 
+  async me(): Promise<{ id: string; email: string } | null> {
+    if (this.token.length === 0) return null;
+    try {
+      const data = await this.request("GET", ["auth", "me"]);
+      const user = data.user as { id: string; email: string } | undefined;
+      return user ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async listProjects(): Promise<Project[]> {
     const json = await this.request("GET", ["projects"]);
     const projects = json.projects;

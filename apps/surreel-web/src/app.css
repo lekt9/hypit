@@ -1342,6 +1342,11 @@ input::placeholder {
   text-align: center;
 }
 
+.login-toggle {
+  justify-content: center;
+  width: 100%;
+}
+
 @media (min-width: 600px) {
   .dialog-scrim {
     place-items: center;

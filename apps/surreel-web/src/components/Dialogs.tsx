@@ -61,32 +61,43 @@ function DialogFrame({
 }
 
 export function LoginGate() {
-  const [token, setToken] = useState("");
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const clean = token.trim();
-    if (clean.length === 0) {
-      setError("Enter your studio key.");
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password;
+    if (cleanEmail.length === 0 || !cleanEmail.includes("@")) {
+      setError("Enter a valid email address.");
+      return;
+    }
+    if (cleanPassword.length < 8) {
+      setError("Password must be at least 8 characters.");
       return;
     }
     setChecking(true);
     setError("");
     try {
-      const response = await fetch("/api/projects", {
-        headers: { Authorization: `Bearer ${clean}`, Accept: "application/json" },
+      const endpoint = mode === "signup" ? "/api/auth/signup" : "/api/auth/login";
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ email: cleanEmail, password: cleanPassword }),
       });
-      if (response.status === 401) {
-        setError("That key is not valid.");
-        return;
-      }
+      const data = (await response.json()) as Record<string, unknown>;
       if (!response.ok) {
-        setError(`Studio returned ${response.status}. Try again.`);
+        setError(typeof data.error === "string" ? data.error : `Request failed (${response.status}).`);
         return;
       }
-      studio.setToken(clean);
+      if (typeof data.token !== "string") {
+        setError("Server did not return a token.");
+        return;
+      }
+      studio.setToken(data.token);
     } catch {
       setError("Could not reach the studio. Check your connection.");
     } finally {
@@ -102,26 +113,47 @@ export function LoginGate() {
         <div className="login">
           <img src="/brand/surreel.svg" alt="" width={36} height={36} className="login-mark" />
           <h1 className="login-title">Surreel</h1>
-          <p className="note">Enter your studio key to start creating.</p>
+          <p className="note">{mode === "signup" ? "Create an account to start creating." : "Sign in to your studio."}</p>
           {error ? <p className="banner">{error}</p> : null}
           <form onSubmit={onSubmit} noValidate>
-            <label className="field" htmlFor="login-token">
-              <span>Studio key</span>
+            <label className="field" htmlFor="login-email">
+              <span>Email</span>
               <input
-                id="login-token"
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                value={token}
-                placeholder="surreel-…"
+                id="login-email"
+                type="email"
+                autoComplete="email"
+                inputMode="email"
+                value={email}
+                placeholder="you@example.com"
                 aria-invalid={error ? true : undefined}
-                onChange={(event) => setToken(event.target.value)}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </label>
+            <label className="field" htmlFor="login-password">
+              <span>Password</span>
+              <input
+                id="login-password"
+                type="password"
+                autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                value={password}
+                placeholder="8+ characters"
+                onChange={(event) => setPassword(event.target.value)}
               />
             </label>
             <button type="submit" className="btn" disabled={checking} aria-busy={checking || undefined}>
-              {checking ? "Checking" : "Sign in"}
+              {checking ? "Working" : mode === "signup" ? "Create account" : "Sign in"}
             </button>
           </form>
+          <button
+            type="button"
+            className="text-link login-toggle"
+            onClick={() => {
+              setMode(mode === "login" ? "signup" : "login");
+              setError("");
+            }}
+          >
+            {mode === "login" ? "No account? Sign up" : "Already have an account? Sign in"}
+          </button>
         </div>
       </div>
     </div>

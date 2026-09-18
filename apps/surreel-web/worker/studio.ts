@@ -39,6 +39,15 @@ import {
   type ReviewState,
   type SocialDestination,
 } from "./types.ts";
+import {
+  hashPassword,
+  normalizeEmail,
+  signJwt,
+  verifyJwt,
+  verifyPassword,
+  type JwtPayload,
+  type User,
+} from "./auth.ts";
 
 export type StudioEnv = {
   FAL_KEY?: string;
@@ -158,15 +167,17 @@ export class StudioDO extends DurableObject<StudioEnv> {
     }
   }
 
-  private authenticate(request: Request): Response | null {
+  private async authenticate(request: Request): Promise<JwtPayload | Response> {
     const secret = this.env.STUDIO_SECRET;
-    if (!secret) return null;
+    if (!secret) return { sub: "anonymous", email: "", iat: 0, exp: 0 };
     const header = request.headers.get("authorization") ?? "";
     const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-    if (token.length > 0 && token === secret) return null;
     const url = new URL(request.url);
-    const queryToken = url.searchParams.get("token") ?? "";
-    if (queryToken.length > 0 && queryToken === secret) return null;
+    const raw = token || url.searchParams.get("token") || "";
+    if (raw.length > 0) {
+      const payload = await verifyJwt(raw, secret);
+      if (payload) return payload;
+    }
     return new Response(JSON.stringify({ error: "Authentication required." }), {
       status: 401,
       headers: {
@@ -175,6 +186,14 @@ export class StudioDO extends DurableObject<StudioEnv> {
         "cache-control": "no-store",
       },
     });
+  }
+
+  private async getUser(email: string): Promise<User | undefined> {
+    return this.ctx.storage.get<User>(`user:${email}`);
+  }
+
+  private async putUser(user: User): Promise<void> {
+    await this.ctx.storage.put(`user:${user.email}`, user);
   }
 
   private async route(request: Request): Promise<Response> {
@@ -193,11 +212,56 @@ export class StudioDO extends DurableObject<StudioEnv> {
         trustLocalAgent: false,
       });
     }
-    const denied = this.authenticate(request);
-    if (denied) return denied;
+
+    if (path === "/api/auth/signup" && request.method === "POST") {
+      const secret = this.env.STUDIO_SECRET;
+      if (!secret) throw new RequestError(503, "Authentication is not configured.");
+      const body = (await request.json()) as Record<string, unknown>;
+      const email = normalizeEmail(stringField(body.email, "Email", 320, 5));
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new RequestError(400, "Enter a valid email address.");
+      const password = stringField(body.password, "Password", 128, 8);
+      const existing = await this.getUser(email);
+      if (existing) throw new RequestError(409, "An account with this email already exists.");
+      const user: User = {
+        id: crypto.randomUUID(),
+        email,
+        passwordHash: await hashPassword(password),
+        createdAt: now(),
+      };
+      await this.putUser(user);
+      const token = await signJwt({ sub: user.id, email: user.email }, secret);
+      return json({ token, user: { id: user.id, email: user.email } }, 201);
+    }
+
+    if (path === "/api/auth/login" && request.method === "POST") {
+      const secret = this.env.STUDIO_SECRET;
+      if (!secret) throw new RequestError(503, "Authentication is not configured.");
+      const body = (await request.json()) as Record<string, unknown>;
+      const email = normalizeEmail(stringField(body.email, "Email", 320, 3));
+      const password = stringField(body.password, "Password", 128, 1);
+      const user = await this.getUser(email);
+      if (!user || !(await verifyPassword(password, user.passwordHash))) {
+        throw new RequestError(401, "Email or password is incorrect.");
+      }
+      const token = await signJwt({ sub: user.id, email: user.email }, secret);
+      return json({ token, user: { id: user.id, email: user.email } });
+    }
+
+    if (path === "/api/auth/me" && request.method === "GET") {
+      const result = await this.authenticate(request);
+      if (result instanceof Response) return result;
+      return json({ user: { id: result.sub, email: result.email } });
+    }
+
+    const auth = await this.authenticate(request);
+    if (auth instanceof Response) return auth;
+    const userId = auth.sub;
     const { projects, jobs, pages } = await this.readAll();
     if (path === "/api/projects" && request.method === "GET") {
-      return json({ projects: Object.values(projects).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) });
+      const owned = Object.values(projects)
+        .filter((p) => !p.userId || p.userId === userId)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      return json({ projects: owned });
     }
     if (path === "/api/projects" && request.method === "POST") {
       const input = projectInput((await request.json()) as Record<string, unknown>);
@@ -206,6 +270,7 @@ export class StudioDO extends DurableObject<StudioEnv> {
       const project: Project = {
         ...input,
         id,
+        userId,
         status: "draft",
         createdAt: created,
         updatedAt: created,
@@ -221,6 +286,7 @@ export class StudioDO extends DurableObject<StudioEnv> {
     const id = match[1]!;
     const project = projects[id];
     if (!project) return json({ error: "Project not found." }, 404);
+    if (project.userId && project.userId !== userId) return json({ error: "Project not found." }, 404);
     const operation = match[2];
     if (!operation && request.method === "GET") return json({ project });
     if (!operation && request.method === "PATCH") {

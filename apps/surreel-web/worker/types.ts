@@ -29,6 +29,7 @@ export type Artifact = { id: string; name: string; url: string; mimeType: string
 
 export type Project = ProjectInput & {
   id: string;
+  userId?: string;
   status: ProjectStatus;
   createdAt: string;
   updatedAt: string;
